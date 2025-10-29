@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import db.db_funcs as db
 from tkinter import messagebox, ttk
 import threading
@@ -15,8 +15,8 @@ class LibraryApp(ctk.CTk):
         super().__init__()
 
         self.title("📚 Библиотечная система")
-        self.geometry("900x600")
-        self.minsize(900, 700)
+        self.geometry("900x400")
+        self.minsize(700, 750)
 
         # Создаем сессию для работы с БД
         self.session = db.get_session()
@@ -369,7 +369,7 @@ class FullLibraryApp(ctk.CTk):
                       hover_color="#B5179E").pack(side="right")
 
         # Простой контент для каждой вкладки
-        for tab_name in ["Читатели", "Книги", "Выдачи", "Штрафы", "Библиотекари"]:
+        for tab_name in ["Выдачи", "Штрафы", "Библиотекари"]:
             tab = self.tabview.tab(tab_name)
             ctk.CTkLabel(tab, text=f"Раздел '{tab_name}' - в разработке",
                          font=ctk.CTkFont(size=16)).pack(pady=50)
@@ -379,6 +379,7 @@ class FullLibraryApp(ctk.CTk):
 
         self.setup_readers_tab()
         self.setup_books_tab()
+        self.setup_loans_tab()
 
     def setup_books_tab(self):
         """Настройка вкладки Книги с двумя режимами"""
@@ -413,6 +414,149 @@ class FullLibraryApp(ctk.CTk):
 
         # Показываем начальный режим
         self.switch_books_mode()
+
+    def setup_loans_tab(self):
+        """Настройка вкладки Выдачи"""
+        tab = self.tabview.tab("Выдачи")
+
+        # Очищаем вкладку от старых элементов
+        for widget in tab.winfo_children():
+            widget.destroy()
+
+        # Основной контейнер
+        main_frame = ctk.CTkFrame(tab)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Левая панель - управление
+        left_panel = ctk.CTkFrame(main_frame)
+        left_panel.pack(side="left", fill="y", padx=(0, 10), pady=10)
+
+        # Правая панель - список выдач
+        right_panel = ctk.CTkFrame(main_frame)
+        right_panel.pack(side="right", fill="both", expand=True, pady=10)
+
+        # === ЛЕВАЯ ПАНЕЛЬ - УПРАВЛЕНИЕ ===
+        ctk.CTkLabel(left_panel, text="Управление выдачами",
+                     font=ctk.CTkFont(size=16, weight="bold")).pack(pady=10)
+
+        # Статистика
+        stats_frame = ctk.CTkFrame(left_panel)
+        stats_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(stats_frame, text="📊 Статистика выдач",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(0, 5))
+
+        self.active_loans_label = ctk.CTkLabel(stats_frame, text="Активные: 0")
+        self.active_loans_label.pack(anchor="w", pady=2)
+
+        self.overdue_loans_label = ctk.CTkLabel(stats_frame, text="Просроченные: 0")
+        self.overdue_loans_label.pack(anchor="w", pady=2)
+
+        self.today_return_label = ctk.CTkLabel(stats_frame, text="Сегодня к возврату: 0")
+        self.today_return_label.pack(anchor="w", pady=2)
+
+        # Фильтры
+        filter_frame = ctk.CTkFrame(left_panel)
+        filter_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(filter_frame, text="Фильтр по статусу:",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(0, 5))
+
+        self.loans_filter = ctk.CTkComboBox(filter_frame,
+                                            values=[
+                                                "Все выдачи",
+                                                "Активные выдачи",
+                                                "Просроченные",
+                                                "Возвращенные",
+                                                "Сегодня к возврату"
+                                            ],
+                                            command=self.apply_loans_filter)
+        self.loans_filter.set("Все выдачи")
+        self.loans_filter.pack(fill="x", pady=5)
+
+        # Поиск
+        search_frame = ctk.CTkFrame(left_panel)
+        search_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(search_frame, text="Поиск:",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(0, 5))
+
+        self.loans_search = ctk.CTkEntry(search_frame, placeholder_text="Читатель, книга, инв. номер")
+        self.loans_search.pack(fill="x", pady=5)
+        self.loans_search.bind("<KeyRelease>", self.search_loans)
+
+        # Кнопки управления
+        btn_frame = ctk.CTkFrame(left_panel)
+        btn_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkButton(btn_frame, text="📖 Выдать книгу",
+                      command=self.show_issue_book_dialog,
+                      fg_color="#4CC9F0",
+                      hover_color="#3AA8D4").pack(fill="x", pady=5)
+
+        ctk.CTkButton(btn_frame, text="↩️ Вернуть книгу",
+                      command=self.show_return_book_dialog,
+                      fg_color="#7209B7",
+                      hover_color="#560BAD").pack(fill="x", pady=5)
+
+        ctk.CTkButton(btn_frame, text="🔄 Продлить срок",
+                      command=self.show_extend_loan_dialog,
+                      fg_color="#F72585",
+                      hover_color="#D41773").pack(fill="x", pady=5)
+
+        ctk.CTkButton(btn_frame, text="🔄 Обновить список",
+                      command=self.load_loans).pack(fill="x", pady=5)
+
+        # === ПРАВАЯ ПАНЕЛЬ - СПИСОК ВЫДАЧ ===
+        # Заголовок
+        header_frame = ctk.CTkFrame(right_panel)
+        header_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(header_frame, text="📋 Список выдач",
+                     font=ctk.CTkFont(size=16, weight="bold")).pack(side="left")
+
+        self.loans_count_label = ctk.CTkLabel(header_frame, text="Всего: 0")
+        self.loans_count_label.pack(side="right")
+
+        # Таблица выдач
+        table_frame = ctk.CTkFrame(right_panel)
+        table_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Создаем Treeview с полосой прокрутки
+        self.loans_tree = ttk.Treeview(table_frame,
+                                       columns=("ID", "Reader", "Book", "Inventory",
+                                                "IssueDate", "DueDate", "Status", "Actions"),
+                                       show="headings",
+                                       height=15)
+
+        # Настраиваем колонки
+        columns_config = [
+            ("ID", "ID", 50),
+            ("Reader", "Читатель", 150),
+            ("Book", "Книга", 200),
+            ("Inventory", "Инв. номер", 100),
+            ("IssueDate", "Дата выдачи", 100),
+            ("DueDate", "Срок возврата", 100),
+            ("Status", "Статус", 120),
+            ("Actions", "Действия", 100)
+        ]
+
+        for col_id, heading, width in columns_config:
+            self.loans_tree.heading(col_id, text=heading)
+            self.loans_tree.column(col_id, width=width)
+
+        # Полоса прокрутки
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.loans_tree.yview)
+        self.loans_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.loans_tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Двойной клик для быстрых действий
+        self.loans_tree.bind("<Double-1>", self.on_loan_double_click)
+
+        # Загружаем данные
+        self.load_loans()
 
     def setup_books_mode(self):
         """Режим обзора книг"""
@@ -478,7 +622,6 @@ class FullLibraryApp(ctk.CTk):
 
         ctk.CTkButton(btn_frame, text="Обновить список",
                       command=self.load_books).pack(fill="x", pady=5)
-
 
         # === ПРАВАЯ ПАНЕЛЬ - СПИСОК КНИГ ===
         header_frame = ctk.CTkFrame(right_panel)
@@ -842,7 +985,6 @@ class FullLibraryApp(ctk.CTk):
             ))
 
         self.copies_count_label.configure(text=f"Всего: {len(copies)}")
-
 
     def show_add_book_dialog(self):
         """Диалог добавления книги"""
@@ -1419,7 +1561,6 @@ class FullLibraryApp(ctk.CTk):
         # Фокусируем на комбобоксе статуса
         status_combo.focus_set()
 
-
     def write_off_copy(self):
         """Списание экземпляра"""
         selected = self.copies_tree.selection()
@@ -1870,6 +2011,992 @@ class FullLibraryApp(ctk.CTk):
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось удалить читателя: {e}")
 
+    def load_loans(self):
+        """Загрузка списка выдач"""
+        try:
+            # Получаем все выдачи
+            loans = db.get_all_loans(self.session)
+
+            # Собираем расширенную информацию о каждой выдаче
+            self.all_loans = []
+            self.active_loans_count = 0
+            self.overdue_loans_count = 0
+            self.today_return_count = 0
+
+            for loan in loans:
+                # Получаем информацию о читателе
+                reader = db.get_reader_by_id(self.session, loan.reader_id)
+                reader_name = reader.name if reader else "Неизвестно"
+
+                # Получаем информацию об экземпляре и книге
+                copy = db.get_copy_by_id(self.session, loan.copy_id)
+                if copy:
+                    book = db.get_book_by_id(self.session, copy.book_id)
+                    book_title = book.title if book else "Неизвестно"
+                    inventory_number = copy.inventory_number
+                else:
+                    book_title = "Неизвестно"
+                    inventory_number = "N/A"
+
+                # Определяем статус
+                if loan.returned:
+                    status_text = "🟦 Возвращена"
+                    status_color = ""
+                else:
+                    if loan.return_date < date.today():
+                        status_text = "🔴 Просрочена"
+                        status_color = "red"
+                        self.overdue_loans_count += 1
+                    elif (loan.return_date - date.today()).days <= 3:
+                        status_text = "🟡 Скоро срок"
+                        status_color = "orange"
+                    else:
+                        status_text = "🟢 Активна"
+                        status_color = "green"
+
+                    self.active_loans_count += 1
+
+                    # Проверяем, нужно ли вернуть сегодня
+                    if loan.return_date == date.today():
+                        self.today_return_count += 1
+
+                # Форматируем даты
+                issue_date = loan.loan_date.strftime("%d.%m.%Y") if loan.loan_date else "-"
+                due_date = loan.return_date.strftime("%d.%m.%Y") if loan.return_date else "-"
+
+                self.all_loans.append({
+                    'id': loan.id,
+                    'reader_name': reader_name,
+                    'reader_id': loan.reader_id,
+                    'book_title': book_title,
+                    'inventory_number': inventory_number,
+                    'issue_date': loan.loan_date,
+                    'due_date': loan.return_date,
+                    'actual_return_date': loan.actual_return_date,
+                    'returned': loan.returned,
+                    'status_text': status_text,
+                    'status_color': status_color,
+                    'copy_id': loan.copy_id,
+                    'loan_obj': loan
+                })
+
+            # Обновляем статистику
+            self.update_loans_stats()
+
+            # Применяем текущий фильтр
+            self.apply_loans_filter(self.loans_filter.get())
+
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить выдачи: {e}")
+
+    def update_loans_stats(self):
+        """Обновление статистики выдач"""
+        self.active_loans_label.configure(text=f"Активные: {self.active_loans_count}")
+        self.overdue_loans_label.configure(text=f"Просроченные: {self.overdue_loans_count}")
+        self.today_return_label.configure(text=f"Сегодня к возврату: {self.today_return_count}")
+
+    def apply_loans_filter(self, choice):
+        """Применение фильтра к списку выдач"""
+        if not hasattr(self, 'all_loans'):
+            return
+
+        filtered_loans = []
+        today = date.today()
+
+        if choice == "Все выдачи":
+            filtered_loans = self.all_loans
+        elif choice == "Активные выдачи":
+            filtered_loans = [loan for loan in self.all_loans if not loan['returned']]
+        elif choice == "Просроченные":
+            filtered_loans = [loan for loan in self.all_loans
+                              if not loan['returned'] and loan['due_date'] < today]
+        elif choice == "Возвращенные":
+            filtered_loans = [loan for loan in self.all_loans if loan['returned']]
+        elif choice == "Сегодня к возврату":
+            filtered_loans = [loan for loan in self.all_loans
+                              if not loan['returned'] and loan['due_date'] == today]
+
+        self.display_loans(filtered_loans)
+
+    def search_loans(self, event=None):
+        """Поиск по выдачам"""
+        search_term = self.loans_search.get().strip().lower()
+        if not search_term:
+            self.apply_loans_filter(self.loans_filter.get())
+            return
+
+        filtered_loans = []
+        for loan in self.all_loans:
+            if (search_term in loan['reader_name'].lower() or
+                    search_term in loan['book_title'].lower() or
+                    search_term in loan['inventory_number'].lower()):
+                filtered_loans.append(loan)
+
+        self.display_loans(filtered_loans)
+
+    def display_loans(self, loans):
+        """Отображение выдач в таблице"""
+        # Очищаем таблицу
+        for item in self.loans_tree.get_children():
+            self.loans_tree.delete(item)
+
+        # Заполняем данными
+        for loan in loans:
+            # Определяем доступные действия
+            actions = ""
+            if not loan['returned']:
+                actions = "↩️ Вернуть"
+
+            self.loans_tree.insert("", "end", values=(
+                loan['id'],
+                loan['reader_name'],
+                loan['book_title'],
+                loan['inventory_number'],
+                loan['issue_date'].strftime("%d.%m.%Y") if loan['issue_date'] else "-",
+                loan['due_date'].strftime("%d.%m.%Y") if loan['due_date'] else "-",
+                loan['status_text'],
+                actions
+            ))
+
+        # Обновляем счетчик
+        self.loans_count_label.configure(text=f"Всего: {len(loans)}")
+
+    def on_loan_double_click(self, event):
+        """Обработка двойного клика по выдаче"""
+        selected = self.loans_tree.selection()
+        if not selected:
+            return
+
+        item = self.loans_tree.item(selected[0])
+        loan_id = item['values'][0]
+        status = item['values'][6]
+
+        # Если выдача активна - предлагаем вернуть
+        if "Активна" in status or "Просрочена" in status or "Скоро срок" in status:
+            self.show_return_book_dialog(loan_id)
+
+    def show_issue_book_dialog(self):
+        """Диалог выдачи книги читателю"""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Выдача книги")
+        dialog.geometry("550x650")
+        dialog.minsize(550, 650)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        self.center_dialog(dialog)
+
+        # Главный контейнер
+        main_container = ctk.CTkFrame(dialog)
+        main_container.pack(fill="both", expand=True, padx=20, pady=15)
+
+        ctk.CTkLabel(main_container, text="📖 Выдача книги читателю",
+                     font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(0, 15))
+
+        # Прокручиваемая область для формы
+        form_scrollable = ctk.CTkScrollableFrame(main_container)
+        form_scrollable.pack(fill="both", expand=True)
+
+        # === ВЫБОР ЧИТАТЕЛЯ ===
+        ctk.CTkLabel(form_scrollable, text="Читатель:*",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(10, 0))
+
+        # Поиск читателя
+        reader_search_frame = ctk.CTkFrame(form_scrollable)
+        reader_search_frame.pack(fill="x", pady=5)
+
+        self.reader_search_entry = ctk.CTkEntry(
+            reader_search_frame,
+            placeholder_text="Поиск по имени, email или телефону...",
+            height=35
+        )
+        self.reader_search_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.reader_search_entry.bind("<KeyRelease>", self.search_readers_for_issue)
+
+        search_btn = ctk.CTkButton(
+            reader_search_frame,
+            text="🔍",
+            width=40,
+            command=lambda: self.search_readers_for_issue()
+        )
+        search_btn.pack(side="right")
+
+        # Список читателей
+        ctk.CTkLabel(form_scrollable, text="Результаты поиска:").pack(anchor="w", pady=(10, 0))
+
+        readers_frame = ctk.CTkFrame(form_scrollable, height=120)
+        readers_frame.pack(fill="x", pady=5)
+
+        # Treeview для читателей
+        readers_tree_frame = ctk.CTkFrame(readers_frame)
+        readers_tree_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+        self.readers_issue_tree = ttk.Treeview(
+            readers_tree_frame,
+            columns=("ID", "Name", "Email", "Phone", "ActiveLoans"),
+            show="headings",
+            height=4
+        )
+
+        readers_columns = [
+            ("ID", "ID", 50),
+            ("Name", "ФИО", 150),
+            ("Email", "Email", 120),
+            ("Phone", "Телефон", 100),
+            ("ActiveLoans", "Активные", 80)
+        ]
+
+        for col_id, heading, width in readers_columns:
+            self.readers_issue_tree.heading(col_id, text=heading)
+            self.readers_issue_tree.column(col_id, width=width)
+
+        readers_scrollbar = ttk.Scrollbar(readers_tree_frame, orient="vertical", command=self.readers_issue_tree.yview)
+        self.readers_issue_tree.configure(yscrollcommand=readers_scrollbar.set)
+
+        self.readers_issue_tree.pack(side="left", fill="both", expand=True)
+        readers_scrollbar.pack(side="right", fill="y")
+
+        self.readers_issue_tree.bind("<<TreeviewSelect>>", self.on_reader_select)
+
+        # === ВЫБОР КНИГИ ===
+        ctk.CTkLabel(form_scrollable, text="Книга:*",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(20, 0))
+
+        # Поиск книги
+        book_search_frame = ctk.CTkFrame(form_scrollable)
+        book_search_frame.pack(fill="x", pady=5)
+
+        self.book_search_entry = ctk.CTkEntry(
+            book_search_frame,
+            placeholder_text="Поиск по названию или автору...",
+            height=35
+        )
+        self.book_search_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.book_search_entry.bind("<KeyRelease>", self.search_books_for_issue)
+
+        book_search_btn = ctk.CTkButton(
+            book_search_frame,
+            text="🔍",
+            width=40,
+            command=lambda: self.search_books_for_issue()
+        )
+        book_search_btn.pack(side="right")
+
+        # Список книг
+        ctk.CTkLabel(form_scrollable, text="Результаты поиска:").pack(anchor="w", pady=(10, 0))
+
+        books_frame = ctk.CTkFrame(form_scrollable, height=120)
+        books_frame.pack(fill="x", pady=5)
+
+        # Treeview для книг
+        books_tree_frame = ctk.CTkFrame(books_frame)
+        books_tree_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+        self.books_issue_tree = ttk.Treeview(
+            books_tree_frame,
+            columns=("ID", "Title", "Author", "Available", "Total"),
+            show="headings",
+            height=4
+        )
+
+        books_columns = [
+            ("ID", "ID", 50),
+            ("Title", "Название", 180),
+            ("Author", "Автор", 120),
+            ("Available", "В наличии", 80),
+            ("Total", "Всего", 60)
+        ]
+
+        for col_id, heading, width in books_columns:
+            self.books_issue_tree.heading(col_id, text=heading)
+            self.books_issue_tree.column(col_id, width=width)
+
+        books_scrollbar = ttk.Scrollbar(books_tree_frame, orient="vertical", command=self.books_issue_tree.yview)
+        self.books_issue_tree.configure(yscrollcommand=books_scrollbar.set)
+
+        self.books_issue_tree.pack(side="left", fill="both", expand=True)
+        books_scrollbar.pack(side="right", fill="y")
+
+        self.books_issue_tree.bind("<<TreeviewSelect>>", self.on_book_select)
+
+        # === ИНФОРМАЦИЯ О ВЫБРАННЫХ ===
+        info_frame = ctk.CTkFrame(form_scrollable)
+        info_frame.pack(fill="x", pady=10)
+
+        self.selected_reader_label = ctk.CTkLabel(info_frame, text="👤 Читатель: не выбран",
+                                                  font=ctk.CTkFont(weight="bold"))
+        self.selected_reader_label.pack(anchor="w", pady=5)
+
+        self.selected_book_label = ctk.CTkLabel(info_frame, text="📚 Книга: не выбрана",
+                                                font=ctk.CTkFont(weight="bold"))
+        self.selected_book_label.pack(anchor="w", pady=5)
+
+        # Информация о лимите книг
+        self.limit_info_label = ctk.CTkLabel(info_frame, text="📊 Лимит: можно взять до 3 книг",
+                                             text_color="gray")
+        self.limit_info_label.pack(anchor="w", pady=2)
+
+        # === СРОК ВЫДАЧИ ===
+        ctk.CTkLabel(form_scrollable, text="Срок выдачи:*",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(10, 0))
+
+        days_frame = ctk.CTkFrame(form_scrollable)
+        days_frame.pack(fill="x", pady=5)
+
+        self.days_var = ctk.StringVar(value="14")
+        days_options = ["7", "14", "21", "30"]
+
+        for i, days in enumerate(days_options):
+            btn = ctk.CTkRadioButton(
+                days_frame,
+                text=f"{days} дней",
+                variable=self.days_var,
+                value=days
+            )
+            btn.pack(side="left", padx=(0, 10))
+
+        # Переменные для хранения выбранных данных
+        self.selected_reader_id = None
+        self.selected_book_id = None
+        self.current_reader_loans_count = 0
+
+        def issue_book():
+            """Функция оформления выдачи"""
+            if not self.selected_reader_id:
+                messagebox.showwarning("Ошибка", "Выберите читателя")
+                return
+
+            if not self.selected_book_id:
+                messagebox.showwarning("Ошибка", "Выберите книгу")
+                return
+
+            try:
+                # Проверяем лимит книг
+                if self.current_reader_loans_count >= 3:
+                    messagebox.showerror("Ошибка",
+                                         f"Читатель уже имеет {self.current_reader_loans_count} книг на руках.\n"
+                                         f"Максимальный лимит - 3 книги.")
+                    return
+
+                # Получаем доступные экземпляры книги
+                available_copies = db.get_available_copies(self.session, self.selected_book_id)
+                if not available_copies:
+                    messagebox.showerror("Ошибка", "Нет доступных экземпляров этой книги")
+                    return
+
+                # Берем первый доступный экземпляр
+                copy = available_copies[0]
+                days = int(self.days_var.get())
+
+                # Создаем выдачу
+                result = db.create_loan(
+                    self.session,
+                    reader_id=self.selected_reader_id,
+                    copy_id=copy.id,
+                    librarian_id=self.current_user.id,
+                    return_days=days
+                )
+
+                if result:
+                    messagebox.showinfo("Успех",
+                                        f"Книга успешно выдана!\n"
+                                        f"Читатель: {self.selected_reader_label.cget('text').replace('👤 Читатель: ', '')}\n"
+                                        f"Книга: {self.selected_book_label.cget('text').replace('📚 Книга: ', '')}\n"
+                                        f"Срок возврата: {result.return_date.strftime('%d.%m.%Y')}\n"
+                                        f"Инвентарный номер: {copy.inventory_number}")
+
+                    dialog.destroy()
+                    # Обновляем списки
+                    self.load_loans()
+                    if hasattr(self, 'load_books'):
+                        self.load_books()
+                    if hasattr(self, 'load_book_copies'):
+                        self.load_book_copies()
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось оформить выдачу")
+
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Ошибка при выдаче книги: {e}")
+
+        # Фрейм для кнопок
+        btn_frame = ctk.CTkFrame(main_container)
+        btn_frame.pack(fill="x", pady=(15, 0))
+
+        ctk.CTkButton(btn_frame, text="Отмена",
+                      command=dialog.destroy,
+                      width=100,
+                      fg_color="gray").pack(side="left", padx=(0, 10))
+
+        self.issue_btn = ctk.CTkButton(btn_frame, text="📖 Выдать книгу",
+                                       command=issue_book,
+                                       width=120,
+                                       state="disabled")
+        self.issue_btn.pack(side="right")
+
+        # Загружаем начальные данные
+        self.load_initial_readers_for_issue()
+        self.load_initial_books_for_issue()
+
+    def search_readers_for_issue(self, event=None):
+        """Поиск читателей для выдачи (по имени, email и телефону)"""
+        search_term = self.reader_search_entry.get().strip()
+
+        try:
+            # Используем существующую функцию поиска читателей
+            readers = db.search_readers(self.session, search_term) if search_term else db.get_all_readers(self.session,
+                                                                                                          limit=50)
+
+            # Если поиск не дал результатов, ищем по телефону отдельно
+            if search_term and not readers:
+                all_readers = db.get_all_readers(self.session)
+                readers = [r for r in all_readers if r.phone_number and search_term in r.phone_number]
+
+            # Очищаем treeview
+            for item in self.readers_issue_tree.get_children():
+                self.readers_issue_tree.delete(item)
+
+            # Заполняем данными
+            for reader in readers:
+                # Получаем активные выдачи
+                active_loans = db.get_loans_by_reader(self.session, reader.id, active_only=True)
+
+                self.readers_issue_tree.insert("", "end", values=(
+                    reader.id,
+                    reader.name,
+                    reader.email,
+                    reader.phone_number or "-",
+                    len(active_loans)
+                ))
+
+        except Exception as e:
+            print(f"Ошибка поиска читателей: {e}")
+
+    def load_initial_readers_for_issue(self):
+        """Загрузка начального списка читателей"""
+        try:
+            readers = db.get_all_readers(self.session, limit=30)
+
+            for item in self.readers_issue_tree.get_children():
+                self.readers_issue_tree.delete(item)
+
+            for reader in readers:
+                active_loans = db.get_loans_by_reader(self.session, reader.id, active_only=True)
+
+                self.readers_issue_tree.insert("", "end", values=(
+                    reader.id,
+                    reader.name,
+                    reader.email,
+                    reader.phone_number or "-",
+                    len(active_loans)
+                ))
+
+        except Exception as e:
+            print(f"Ошибка загрузки читателей: {e}")
+
+    def search_books_for_issue(self, event=None):
+        """Поиск книг для выдачи (по отдельным словам в названии и авторе)"""
+        search_term = self.book_search_entry.get().strip().lower()
+
+        try:
+            # Получаем все книги с доступными экземплярами
+            all_books = db.get_all_books(self.session)
+
+            # Очищаем treeview
+            for item in self.books_issue_tree.get_children():
+                self.books_issue_tree.delete(item)
+
+            if not search_term:
+                # Показываем все книги с доступными экземплярами
+                for book in all_books:
+                    copies = db.get_copies_by_book(self.session, book.id)
+                    available_copies = len([c for c in copies if c.available])
+
+                    if available_copies > 0:
+                        self.books_issue_tree.insert("", "end", values=(
+                            book.id,
+                            book.title,
+                            book.author or "-",
+                            available_copies,
+                            len(copies)
+                        ))
+            else:
+                # Ищем по отдельным словам в названии и авторе
+                search_words = search_term.split()
+                found_books = []
+
+                for book in all_books:
+                    copies = db.get_copies_by_book(self.session, book.id)
+                    available_copies = len([c for c in copies if c.available])
+
+                    if available_copies == 0:
+                        continue
+
+                    # Проверяем совпадение по всем словам поиска
+                    title_lower = (book.title or "").lower()
+                    author_lower = (book.author or "").lower()
+
+                    # Ищем совпадение любого из слов в названии или авторе
+                    title_match = any(word in title_lower for word in search_words)
+                    author_match = any(word in author_lower for word in search_words)
+
+                    if title_match or author_match:
+                        found_books.append((book, available_copies, len(copies)))
+
+                # Сортируем по релевантности (количество совпадений)
+                found_books.sort(key=lambda x: (
+                    sum(word in (x[0].title or "").lower() for word in search_words) +
+                    sum(word in (x[0].author or "").lower() for word in search_words),
+                    x[1]  # затем по количеству доступных экземпляров
+                ), reverse=True)
+
+                for book, available_copies, total_copies in found_books:
+                    self.books_issue_tree.insert("", "end", values=(
+                        book.id,
+                        book.title,
+                        book.author or "-",
+                        available_copies,
+                        total_copies
+                    ))
+
+        except Exception as e:
+            print(f"Ошибка поиска книг: {e}")
+
+    def load_initial_books_for_issue(self):
+        """Загрузка начального списка книг"""
+        try:
+            books = db.get_all_books(self.session)
+
+            for item in self.books_issue_tree.get_children():
+                self.books_issue_tree.delete(item)
+
+            # Показываем только книги с доступными экземплярами
+            for book in books:
+                copies = db.get_copies_by_book(self.session, book.id)
+                available_copies = len([c for c in copies if c.available])
+
+                if available_copies > 0:
+                    self.books_issue_tree.insert("", "end", values=(
+                        book.id,
+                        book.title,
+                        book.author or "-",
+                        available_copies,
+                        len(copies)
+                    ))
+
+        except Exception as e:
+            print(f"Ошибка загрузки книг: {e}")
+
+    def on_reader_select(self, event):
+        """Обработка выбора читателя с проверкой лимита книг"""
+        selected = self.readers_issue_tree.selection()
+        if not selected:
+            return
+
+        item = self.readers_issue_tree.item(selected[0])
+        self.selected_reader_id = item['values'][0]
+        reader_name = item['values'][1]
+        active_loans = item['values'][4]
+
+        self.current_reader_loans_count = active_loans
+        self.selected_reader_label.configure(text=f"👤 Читатель: {reader_name}")
+
+        # Обновляем информацию о лимите
+        remaining_books = 3 - active_loans
+        if remaining_books > 0:
+            self.limit_info_label.configure(
+                text=f"📊 Лимит: {active_loans}/3 книг (можно взять ещё {remaining_books})",
+                text_color="green"
+            )
+        else:
+            self.limit_info_label.configure(
+                text=f"📊 Лимит: {active_loans}/3 книг (лимит исчерпан!)",
+                text_color="red"
+            )
+
+        self.update_issue_button_state()
+
+    def on_book_select(self, event):
+        """Обработка выбора книги"""
+        selected = self.books_issue_tree.selection()
+        if not selected:
+            return
+
+        item = self.books_issue_tree.item(selected[0])
+        self.selected_book_id = item['values'][0]
+        book_title = item['values'][1]
+        book_author = item['values'][2]
+
+        self.selected_book_label.configure(text=f"📚 Книга: {book_title} ({book_author})")
+        self.update_issue_button_state()
+
+    def update_issue_button_state(self):
+        """Обновление состояния кнопки выдачи с проверкой лимита"""
+        if (self.selected_reader_id and self.selected_book_id and
+                self.current_reader_loans_count < 3):
+            self.issue_btn.configure(state="normal")
+        else:
+            self.issue_btn.configure(state="disabled")
+
+    def show_return_book_dialog(self, loan_id=None):
+        """Диалог возврата книги"""
+        # Если loan_id не передан, пытаемся получить из выделенной строки
+        if loan_id is None:
+            selected = self.loans_tree.selection()
+            if not selected:
+                messagebox.showwarning("Ошибка", "Выберите выдачу для возврата")
+                return
+            loan_id = self.loans_tree.item(selected[0])['values'][0]
+
+        try:
+            # Получаем информацию о выдаче
+            loan = db.get_loan_by_id(self.session, loan_id)
+            if not loan:
+                messagebox.showerror("Ошибка", "Выдача не найдена")
+                return
+
+            if loan.returned:
+                messagebox.showinfo("Информация", "Эта книга уже возвращена")
+                return
+
+            # Получаем дополнительную информацию
+            reader = db.get_reader_by_id(self.session, loan.reader_id)
+            copy = db.get_copy_by_id(self.session, loan.copy_id)
+            book = db.get_book_by_id(self.session, copy.book_id) if copy else None
+
+            dialog = ctk.CTkToplevel(self)
+            dialog.title("Возврат книги")
+            dialog.geometry("500x450")
+            dialog.minsize(500, 550)
+            dialog.transient(self)
+            dialog.grab_set()
+
+            self.center_dialog(dialog)
+
+            # Главный контейнер
+            main_container = ctk.CTkFrame(dialog)
+            main_container.pack(fill="both", expand=True, padx=20, pady=15)
+
+            ctk.CTkLabel(main_container, text="↩️ Возврат книги",
+                         font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(0, 15))
+
+            # Информация о выдаче
+            info_frame = ctk.CTkFrame(main_container)
+            info_frame.pack(fill="x", pady=10)
+
+            ctk.CTkLabel(info_frame, text="Информация о выдаче:",
+                         font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(10, 5))
+
+            # Отображаем информацию
+            info_text = f"""
+    📖 Книга: {book.title if book else "Неизвестно"}
+    👤 Читатель: {reader.name if reader else "Неизвестно"}
+    📅 Дата выдачи: {loan.loan_date.strftime('%d.%m.%Y')}
+    📅 Срок возврата: {loan.return_date.strftime('%d.%m.%Y')}
+    🔢 Инвентарный номер: {copy.inventory_number if copy else "N/A"}
+            """
+
+            if loan.return_date < date.today():
+                overdue_days = (date.today() - loan.return_date).days
+                info_text += f"\n⚠️ Просрочка: {overdue_days} дней"
+                info_text += f"\n💰 Возможный штраф: {overdue_days * 10} руб."
+
+            info_label = ctk.CTkLabel(info_frame, text=info_text, justify="left")
+            info_label.pack(anchor="w", pady=10, padx=10)
+
+            # Состояние книги при возврате
+            ctk.CTkLabel(main_container, text="Состояние книги при возврате:",
+                         font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(10, 0))
+
+            condition_frame = ctk.CTkFrame(main_container)
+            condition_frame.pack(fill="x", pady=5)
+
+            self.return_condition_var = ctk.StringVar(value=copy.condition if copy else "Хорошее")
+            conditions = ["Отличное", "Хорошее", "Удовлетворительное", "Плохое", "Повреждена"]
+
+            condition_combo = ctk.CTkComboBox(condition_frame, values=conditions,
+                                              variable=self.return_condition_var)
+            condition_combo.pack(fill="x", pady=5)
+
+            # Примечание
+            ctk.CTkLabel(main_container, text="Примечание (опционально):").pack(anchor="w", pady=(10, 0))
+            note_entry = ctk.CTkEntry(main_container, height=35, placeholder_text="Заметки о состоянии книги...")
+            note_entry.pack(fill="x", pady=5)
+
+            # Автоматическое создание штрафа
+            create_fine_var = ctk.BooleanVar(value=True)
+
+            if loan.return_date >= date.today():
+                create_fine_var.set(False)  # Не создавать штраф если нет просрочки
+
+            fine_check = ctk.CTkCheckBox(main_container,
+                                         text="Создать штраф за просрочку (если есть)",
+                                         variable=create_fine_var)
+            fine_check.pack(anchor="w", pady=10)
+
+            def process_return():
+                try:
+                    condition = self.return_condition_var.get()
+                    note = note_entry.get().strip() or None
+
+                    # Возвращаем книгу
+                    result = db.return_loan(self.session, loan_id)
+                    if not result:
+                        messagebox.showerror("Ошибка", "Не удалось оформить возврат")
+                        return
+
+                    # Обновляем состояние экземпляра
+                    if copy:
+                        db.update_copy(self.session, copy.id, condition=condition)
+
+                    # Создаем штраф если есть просрочка и отмечена галочка
+                    if create_fine_var.get() and loan.return_date < date.today():
+                        overdue_days = (date.today() - loan.return_date).days
+                        fine_amount = overdue_days * 10  # 10 руб. в день
+
+                        fine_result = db.create_fine(
+                            self.session,
+                            loan_id,
+                            self.current_user.id,
+                            fine_amount
+                        )
+
+                        if fine_result:
+                            messagebox.showinfo("Успех",
+                                                f"Книга успешно возвращена!\n"
+                                                f"Создан штраф: {fine_amount} руб. за {overdue_days} дней просрочки")
+                        else:
+                            messagebox.showinfo("Успех",
+                                                f"Книга успешно возвращена!\n"
+                                                f"Штраф не создан (возможно, уже существует)")
+                    else:
+                        messagebox.showinfo("Успех", "Книга успешно возвращена!")
+
+                    dialog.destroy()
+
+                    # Обновляем интерфейс
+                    self.load_loans()
+                    if hasattr(self, 'load_books'):
+                        self.load_books()
+                    if hasattr(self, 'load_book_copies'):
+                        self.load_book_copies()
+
+                except Exception as e:
+                    messagebox.showerror("Ошибка", f"Ошибка при возврате книги: {e}")
+
+            # Фрейм для кнопок
+            btn_frame = ctk.CTkFrame(main_container)
+            btn_frame.pack(fill="x", pady=(15, 0))
+
+            ctk.CTkButton(btn_frame, text="Отмена",
+                          command=dialog.destroy,
+                          width=100,
+                          fg_color="gray").pack(side="left", padx=(0, 10))
+
+            ctk.CTkButton(btn_frame, text="✅ Подтвердить возврат",
+                          command=process_return,
+                          width=140,
+                          fg_color="#7209B7").pack(side="right")
+
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка при открытии диалога возврата: {e}")
+
+    def show_extend_loan_dialog(self):
+        """Диалог продления срока выдачи"""
+        selected = self.loans_tree.selection()
+        if not selected:
+            messagebox.showwarning("Ошибка", "Выберите выдачу для продления")
+            return
+
+        loan_id = self.loans_tree.item(selected[0])['values'][0]
+
+        try:
+            # Получаем информацию о выдаче
+            loan = db.get_loan_by_id(self.session, loan_id)
+            if not loan:
+                messagebox.showerror("Ошибка", "Выдача не найдена")
+                return
+
+            if loan.returned:
+                messagebox.showinfo("Информация", "Эта книга уже возвращена")
+                return
+
+            # Проверяем, не было ли уже продления
+            current_return_date = loan.return_date
+            original_return_date = current_return_date
+
+            # Получаем дополнительную информацию
+            reader = db.get_reader_by_id(self.session, loan.reader_id)
+            copy = db.get_copy_by_id(self.session, loan.copy_id)
+            book = db.get_book_by_id(self.session, copy.book_id) if copy else None
+
+            dialog = ctk.CTkToplevel(self)
+            dialog.title("Продление срока")
+            dialog.geometry("500x500")
+            dialog.minsize(500, 650)
+            dialog.transient(self)
+            dialog.grab_set()
+
+            self.center_dialog(dialog)
+
+            # Главный контейнер
+            main_container = ctk.CTkFrame(dialog)
+            main_container.pack(fill="both", expand=True, padx=20, pady=15)
+
+            ctk.CTkLabel(main_container, text="📅 Продление срока выдачи",
+                         font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(0, 15))
+
+            # Информация о выдаче
+            info_frame = ctk.CTkFrame(main_container)
+            info_frame.pack(fill="x", pady=10)
+
+            ctk.CTkLabel(info_frame, text="Информация о выдаче:",
+                         font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(10, 5))
+
+            # Отображаем информацию
+            info_text = f"""
+    📖 Книга: {book.title if book else "Неизвестно"}
+    👤 Читатель: {reader.name if reader else "Неизвестно"}
+    📅 Дата выдачи: {loan.loan_date.strftime('%d.%m.%Y')}
+    📅 Текущий срок: {current_return_date.strftime('%d.%m.%Y')}
+            """
+
+            if current_return_date < date.today():
+                overdue_days = (date.today() - current_return_date).days
+                info_text += f"\n⚠️ Просрочка: {overdue_days} дней"
+
+            info_label = ctk.CTkLabel(info_frame, text=info_text, justify="left")
+            info_label.pack(anchor="w", pady=10, padx=10)
+
+            # Выбор срока продления
+            ctk.CTkLabel(main_container, text="Продлить на:*",
+                         font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(10, 0))
+
+            days_frame = ctk.CTkFrame(main_container)
+            days_frame.pack(fill="x", pady=5)
+
+            self.extend_days_var = ctk.StringVar(value="7")
+            days_options = [
+                ("+7 дней", "7"),
+                ("+14 дней", "14"),
+                ("+21 день", "21"),
+                ("+1 месяц", "30")
+            ]
+
+            for i, (text, value) in enumerate(days_options):
+                btn = ctk.CTkRadioButton(
+                    days_frame,
+                    text=text,
+                    variable=self.extend_days_var,
+                    value=value
+                )
+                btn.pack(side="left", padx=(0, 10))
+
+            # Информация о новом сроке
+            new_date_frame = ctk.CTkFrame(main_container)
+            new_date_frame.pack(fill="x", pady=10)
+
+            def update_new_date(*args):
+                try:
+                    days = int(self.extend_days_var.get())
+                    new_return_date = current_return_date + timedelta(days=days)
+                    new_date_label.configure(
+                        text=f"📅 Новый срок возврата: {new_return_date.strftime('%d.%m.%Y')}"
+                    )
+                except:
+                    pass
+
+            self.extend_days_var.trace('w', update_new_date)
+
+            new_date_label = ctk.CTkLabel(new_date_frame,
+                                          text="📅 Новый срок возврата: ...",
+                                          font=ctk.CTkFont(weight="bold"))
+            new_date_label.pack(pady=5)
+
+            # Обновляем сразу при открытии
+            update_new_date()
+
+            # Причина продления
+            ctk.CTkLabel(main_container, text="Причина продления (опционально):").pack(anchor="w", pady=(10, 0))
+            reason_entry = ctk.CTkEntry(main_container, height=35, placeholder_text="Укажите причину продления...")
+            reason_entry.pack(fill="x", pady=5)
+
+            # Ограничения
+            restrictions_frame = ctk.CTkFrame(main_container)
+            restrictions_frame.pack(fill="x", pady=10)
+
+            restrictions_text = """
+    ⚠️ Ограничения:
+    • Продлевать можно только 2 раза
+    • Максимальный общий срок - 60 дней
+    • Нельзя продлевать книги с большими просрочками
+            """
+            ctk.CTkLabel(restrictions_frame, text=restrictions_text,
+                         justify="left", text_color="orange").pack(pady=5)
+
+            def process_extension():
+                try:
+                    days = int(self.extend_days_var.get())
+                    reason = reason_entry.get().strip() or None
+                    new_return_date = current_return_date + timedelta(days=days)
+
+                    # Проверяем ограничения
+                    total_days = (new_return_date - loan.loan_date).days
+                    if total_days > 60:
+                        messagebox.showerror("Ошибка",
+                                             f"Общий срок не может превышать 60 дней.\n"
+                                             f"Текущий общий срок: {total_days} дней")
+                        return
+
+                    # Проверяем большую просрочку
+                    if current_return_date < date.today():
+                        overdue_days = (date.today() - current_return_date).days
+                        if overdue_days > 30:
+                            messagebox.showerror("Ошибка",
+                                                 f"Нельзя продлевать книги с просрочкой более 30 дней.\n"
+                                                 f"Текущая просрочка: {overdue_days} дней")
+                            return
+
+                    # Обновляем дату возврата
+                    result = db.update_loan(self.session, loan_id, return_date=new_return_date)
+                    if result:
+                        messagebox.showinfo("Успех",
+                                            f"Срок успешно продлен!\n"
+                                            f"Новый срок возврата: {new_return_date.strftime('%d.%m.%Y')}\n"
+                                            f"Добавлено дней: {days}")
+
+                        dialog.destroy()
+
+                        # Обновляем интерфейс
+                        self.load_loans()
+
+                        # Логируем продление
+                        log_msg = f"Продлена выдача ID {loan_id}: {current_return_date.strftime('%d.%m.%Y')} -> {new_return_date.strftime('%d.%m.%Y')}"
+                        if reason:
+                            log_msg += f" (Причина: {reason})"
+                        print(log_msg)
+
+                    else:
+                        messagebox.showerror("Ошибка", "Не удалось продлить срок")
+
+                except Exception as e:
+                    messagebox.showerror("Ошибка", f"Ошибка при продлении срока: {e}")
+
+            # Фрейм для кнопок
+            btn_frame = ctk.CTkFrame(main_container)
+            btn_frame.pack(fill="x", pady=(15, 0))
+
+            ctk.CTkButton(btn_frame, text="Отмена",
+                          command=dialog.destroy,
+                          width=100,
+                          fg_color="gray").pack(side="left", padx=(0, 10))
+
+            ctk.CTkButton(btn_frame, text="✅ Продлить срок",
+                          command=process_extension,
+                          width=120,
+                          fg_color="#4CC9F0").pack(side="right")
+
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка при открытии диалога продления: {e}")
 
 if __name__ == "__main__":
     app = LibraryApp()
