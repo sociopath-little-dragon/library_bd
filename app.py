@@ -369,17 +369,17 @@ class FullLibraryApp(ctk.CTk):
                       hover_color="#B5179E").pack(side="right")
 
         # Простой контент для каждой вкладки
-        for tab_name in ["Выдачи", "Штрафы", "Библиотекари"]:
+        for tab_name in ["Библиотекари"]:
             tab = self.tabview.tab(tab_name)
             ctk.CTkLabel(tab, text=f"Раздел '{tab_name}' - в разработке",
                          font=ctk.CTkFont(size=16)).pack(pady=50)
-
             ctk.CTkLabel(tab, text="Здесь будет функционал для управления этой частью системы",
                          font=ctk.CTkFont(size=12)).pack(pady=10)
 
         self.setup_readers_tab()
         self.setup_books_tab()
         self.setup_loans_tab()
+        self.setup_fines_tab()
 
     def setup_books_tab(self):
         """Настройка вкладки Книги с двумя режимами"""
@@ -557,6 +557,157 @@ class FullLibraryApp(ctk.CTk):
 
         # Загружаем данные
         self.load_loans()
+
+    def setup_fines_tab(self):
+        """Настройка вкладки Штрафы"""
+        tab = self.tabview.tab("Штрафы")
+
+        # Очищаем вкладку от старых элементов
+        for widget in tab.winfo_children():
+            widget.destroy()
+
+        # Основной контейнер
+        main_frame = ctk.CTkFrame(tab)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Левая панель - управление и статистика
+        left_panel = ctk.CTkFrame(main_frame)
+        left_panel.pack(side="left", fill="y", padx=(0, 10), pady=10)
+
+        # Правая панель - список штрафов
+        right_panel = ctk.CTkFrame(main_frame)
+        right_panel.pack(side="right", fill="both", expand=True, pady=10)
+
+        # === ЛЕВАЯ ПАНЕЛЬ - УПРАВЛЕНИЕ ===
+        ctk.CTkLabel(left_panel, text="💰 Управление штрафами",
+                     font=ctk.CTkFont(size=16, weight="bold")).pack(pady=10)
+
+        # Статистика штрафов
+        stats_frame = ctk.CTkFrame(left_panel)
+        stats_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(stats_frame, text="📊 Статистика штрафов",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(0, 5))
+
+        self.total_fines_label = ctk.CTkLabel(stats_frame, text="Всего штрафов: 0")
+        self.total_fines_label.pack(anchor="w", pady=2)
+
+        self.unpaid_fines_label = ctk.CTkLabel(stats_frame, text="Неоплаченных: 0")
+        self.unpaid_fines_label.pack(anchor="w", pady=2)
+
+        self.total_amount_label = ctk.CTkLabel(stats_frame, text="Общая сумма: 0 руб.")
+        self.total_amount_label.pack(anchor="w", pady=2)
+
+        self.unpaid_amount_label = ctk.CTkLabel(stats_frame, text="Сумма неоплаченных: 0 руб.")
+        self.unpaid_amount_label.pack(anchor="w", pady=2)
+
+        # Фильтры
+        filter_frame = ctk.CTkFrame(left_panel)
+        filter_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(filter_frame, text="Фильтр по статусу:",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(0, 5))
+
+        self.fines_filter = ctk.CTkComboBox(filter_frame,
+                                            values=[
+                                                "Все штрафы",
+                                                "Неоплаченные",
+                                                "Оплаченные",
+                                                "За последнюю неделю",
+                                                "За последний месяц"
+                                            ],
+                                            command=self.apply_fines_filter)
+        self.fines_filter.set("Все штрафы")
+        self.fines_filter.pack(fill="x", pady=5)
+
+        # Поиск
+        search_frame = ctk.CTkFrame(left_panel)
+        search_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(search_frame, text="Поиск:",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(0, 5))
+
+        self.fines_search = ctk.CTkEntry(search_frame, placeholder_text="Читатель, книга, сумма...")
+        self.fines_search.pack(fill="x", pady=5)
+        self.fines_search.bind("<KeyRelease>", self.search_fines)
+
+        # Кнопки управления
+        btn_frame = ctk.CTkFrame(left_panel)
+        btn_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkButton(btn_frame, text="➕ Создать штраф",
+                      command=self.show_create_fine_dialog,
+                      fg_color="#4CC9F0",
+                      hover_color="#3AA8D4").pack(fill="x", pady=5)
+
+        ctk.CTkButton(btn_frame, text="✅ Отметить оплату",
+                      command=self.mark_fine_paid,
+                      fg_color="#7209B7",
+                      hover_color="#560BAD").pack(fill="x", pady=5)
+
+        ctk.CTkButton(btn_frame, text="🔄 Авто-штрафы за просрочку",
+                      command=self.auto_create_overdue_fines,
+                      fg_color="#F72585",
+                      hover_color="#D41773").pack(fill="x", pady=5)
+
+        ctk.CTkButton(btn_frame, text="🗑️ Удалить штраф",
+                      command=self.delete_fine,
+                      fg_color="#E63946",
+                      hover_color="#C1121F").pack(fill="x", pady=5)
+
+        ctk.CTkButton(btn_frame, text="🔄 Обновить список",
+                      command=self.load_fines).pack(fill="x", pady=5)
+
+        # === ПРАВАЯ ПАНЕЛЬ - СПИСОК ШТРАФОВ ===
+        # Заголовок
+        header_frame = ctk.CTkFrame(right_panel)
+        header_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(header_frame, text="📋 Список штрафов",
+                     font=ctk.CTkFont(size=16, weight="bold")).pack(side="left")
+
+        self.fines_count_label = ctk.CTkLabel(header_frame, text="Всего: 0")
+        self.fines_count_label.pack(side="right")
+
+        # Таблица штрафов
+        table_frame = ctk.CTkFrame(right_panel)
+        table_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Создаем Treeview с полосой прокрутки
+        self.fines_tree = ttk.Treeview(table_frame,
+                                       columns=("ID", "Reader", "Book", "Amount", "IssuedDate",
+                                                "Status", "LoanID", "Librarian"),
+                                       show="headings",
+                                       height=15)
+
+        # Настраиваем колонки
+        columns_config = [
+            ("ID", "ID", 50),
+            ("Reader", "Читатель", 150),
+            ("Book", "Книга", 200),
+            ("Amount", "Сумма", 100),
+            ("IssuedDate", "Дата выдачи", 120),
+            ("Status", "Статус", 120),
+            ("LoanID", "ID выдачи", 80),
+            ("Librarian", "Библиотекарь", 120)
+        ]
+
+        for col_id, heading, width in columns_config:
+            self.fines_tree.heading(col_id, text=heading)
+            self.fines_tree.column(col_id, width=width)
+
+        # Полоса прокрутки
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.fines_tree.yview)
+        self.fines_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.fines_tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Двойной клик для быстрых действий
+        self.fines_tree.bind("<Double-1>", self.on_fine_double_click)
+
+        # Загружаем данные
+        self.load_fines()
 
     def setup_books_mode(self):
         """Режим обзора книг"""
@@ -2998,6 +3149,616 @@ class FullLibraryApp(ctk.CTk):
         except Exception as e:
             messagebox.showerror("Ошибка", f"Ошибка при открытии диалога продления: {e}")
 
+    def load_fines(self):
+        """Загрузка списка штрафов"""
+        try:
+            # Получаем все штрафы
+            fines = db.get_all_fines(self.session)
+
+            # Собираем расширенную информацию о каждом штрафе
+            self.all_fines = []
+            self.total_fines_count = 0
+            self.unpaid_fines_count = 0
+            self.total_amount_sum = 0
+            self.unpaid_amount_sum = 0
+
+            for fine in fines:
+                # Получаем информацию о выдаче
+                loan = db.get_loan_by_id(self.session, fine.loan_id)
+                if not loan:
+                    continue
+
+                # Получаем информацию о читателе
+                reader = db.get_reader_by_id(self.session, loan.reader_id)
+                reader_name = reader.name if reader else "Неизвестно"
+
+                # Получаем информацию об экземпляре и книге
+                copy = db.get_copy_by_id(self.session, loan.copy_id)
+                if copy:
+                    book = db.get_book_by_id(self.session, copy.book_id)
+                    book_title = book.title if book else "Неизвестно"
+                else:
+                    book_title = "Неизвестно"
+
+                # Получаем информацию о библиотекаре
+                librarian = db.get_librarian_by_id(self.session, fine.librarian_id)
+                librarian_name = librarian.name if librarian else "Неизвестно"
+
+                # Определяем статус
+                if fine.paid:
+                    status_text = "✅ Оплачен"
+                    status_color = "green"
+                else:
+                    status_text = "❌ Не оплачен"
+                    status_color = "red"
+                    self.unpaid_fines_count += 1
+                    self.unpaid_amount_sum += fine.amount
+
+                self.total_fines_count += 1
+                self.total_amount_sum += fine.amount
+
+                # Форматируем дату
+                issued_date = fine.issued_date.strftime("%d.%m.%Y") if fine.issued_date else "-"
+
+                self.all_fines.append({
+                    'id': fine.id,
+                    'reader_name': reader_name,
+                    'book_title': book_title,
+                    'amount': fine.amount,
+                    'issued_date': fine.issued_date,
+                    'status_text': status_text,
+                    'status_color': status_color,
+                    'loan_id': fine.loan_id,
+                    'librarian_name': librarian_name,
+                    'paid': fine.paid,
+                    'fine_obj': fine
+                })
+
+            # Обновляем статистику
+            self.update_fines_stats()
+
+            # Применяем текущий фильтр
+            self.apply_fines_filter(self.fines_filter.get())
+
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить штрафы: {e}")
+
+    def update_fines_stats(self):
+        """Обновление статистики штрафов"""
+        self.total_fines_label.configure(text=f"Всего штрафов: {self.total_fines_count}")
+        self.unpaid_fines_label.configure(text=f"Неоплаченных: {self.unpaid_fines_count}")
+        self.total_amount_label.configure(text=f"Общая сумма: {self.total_amount_sum} руб.")
+        self.unpaid_amount_label.configure(text=f"Сумма неоплаченных: {self.unpaid_amount_sum} руб.")
+
+    def apply_fines_filter(self, choice):
+        """Применение фильтра к списку штрафов"""
+        if not hasattr(self, 'all_fines'):
+            return
+
+        filtered_fines = []
+        today = date.today()
+
+        if choice == "Все штрафы":
+            filtered_fines = self.all_fines
+        elif choice == "Неоплаченные":
+            filtered_fines = [fine for fine in self.all_fines if not fine['paid']]
+        elif choice == "Оплаченные":
+            filtered_fines = [fine for fine in self.all_fines if fine['paid']]
+        elif choice == "За последнюю неделю":
+            week_ago = today - timedelta(days=7)
+            filtered_fines = [fine for fine in self.all_fines
+                              if fine['issued_date'] and fine['issued_date'] >= week_ago]
+        elif choice == "За последний месяц":
+            month_ago = today - timedelta(days=30)
+            filtered_fines = [fine for fine in self.all_fines
+                              if fine['issued_date'] and fine['issued_date'] >= month_ago]
+
+        self.display_fines(filtered_fines)
+
+    def search_fines(self, event=None):
+        """Поиск по штрафам"""
+        search_term = self.fines_search.get().strip().lower()
+        if not search_term:
+            self.apply_fines_filter(self.fines_filter.get())
+            return
+
+        filtered_fines = []
+        for fine in self.all_fines:
+            if (search_term in fine['reader_name'].lower() or
+                    search_term in fine['book_title'].lower() or
+                    search_term in str(fine['amount']) or
+                    search_term in str(fine['loan_id'])):
+                filtered_fines.append(fine)
+
+        self.display_fines(filtered_fines)
+
+    def display_fines(self, fines):
+        """Отображение штрафов в таблице"""
+        # Очищаем таблицу
+        for item in self.fines_tree.get_children():
+            self.fines_tree.delete(item)
+
+        # Заполняем данными
+        for fine in fines:
+            self.fines_tree.insert("", "end", values=(
+                fine['id'],
+                fine['reader_name'],
+                fine['book_title'],
+                f"{fine['amount']} руб.",
+                fine['issued_date'].strftime("%d.%m.%Y") if fine['issued_date'] else "-",
+                fine['status_text'],
+                fine['loan_id'],
+                fine['librarian_name']
+            ))
+
+            # Устанавливаем цвет строки в зависимости от статуса
+            if not fine['paid']:
+                self.fines_tree.set(self.fines_tree.get_children()[-1], "Status", fine['status_text'])
+
+        # Обновляем счетчик
+        self.fines_count_label.configure(text=f"Всего: {len(fines)}")
+
+    def on_fine_double_click(self, event):
+        """Обработка двойного клика по штрафу"""
+        selected = self.fines_tree.selection()
+        if not selected:
+            return
+
+        item = self.fines_tree.item(selected[0])
+        fine_id = item['values'][0]
+        status = item['values'][5]
+
+        # Если штраф не оплачен - предлагаем отметить оплату
+        if "❌ Не оплачен" in status:
+            self.mark_fine_paid(fine_id)
+
+    def show_create_fine_dialog(self):
+        """Диалог создания штрафа"""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Создание штрафа")
+        dialog.geometry("600x600")
+        dialog.minsize(600, 600)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        self.center_dialog(dialog)
+
+        # Главный контейнер
+        main_container = ctk.CTkFrame(dialog)
+        main_container.pack(fill="both", expand=True, padx=20, pady=15)
+
+        ctk.CTkLabel(main_container, text="💰 Создание штрафа",
+                     font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(0, 15))
+
+        # Прокручиваемая область для формы
+        form_scrollable = ctk.CTkScrollableFrame(main_container)
+        form_scrollable.pack(fill="both", expand=True)
+
+        # === ВЫБОР ВЫДАЧИ ===
+        ctk.CTkLabel(form_scrollable, text="Выдача:*",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(10, 0))
+
+        # Поиск выдачи
+        loan_search_frame = ctk.CTkFrame(form_scrollable)
+        loan_search_frame.pack(fill="x", pady=5)
+
+        self.loan_search_entry = ctk.CTkEntry(
+            loan_search_frame,
+            placeholder_text="Поиск по читателю, книге или ID выдачи...",
+            height=35
+        )
+        self.loan_search_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.loan_search_entry.bind("<KeyRelease>", self.search_loans_for_fine)
+
+        search_btn = ctk.CTkButton(
+            loan_search_frame,
+            text="🔍",
+            width=40,
+            command=lambda: self.search_loans_for_fine()
+        )
+        search_btn.pack(side="right")
+
+        # Список выдач
+        ctk.CTkLabel(form_scrollable, text="Результаты поиска:").pack(anchor="w", pady=(10, 0))
+
+        loans_frame = ctk.CTkFrame(form_scrollable, height=150)
+        loans_frame.pack(fill="x", pady=5)
+
+        # Treeview для выдач
+        loans_tree_frame = ctk.CTkFrame(loans_frame)
+        loans_tree_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+        self.loans_fine_tree = ttk.Treeview(
+            loans_tree_frame,
+            columns=("ID", "Reader", "Book", "IssueDate", "DueDate", "Status"),
+            show="headings",
+            height=5
+        )
+
+        loans_columns = [
+            ("ID", "ID", 60),
+            ("Reader", "Читатель", 150),
+            ("Book", "Книга", 180),
+            ("IssueDate", "Дата выдачи", 100),
+            ("DueDate", "Срок возврата", 100),
+            ("Status", "Статус", 100)
+        ]
+
+        for col_id, heading, width in loans_columns:
+            self.loans_fine_tree.heading(col_id, text=heading)
+            self.loans_fine_tree.column(col_id, width=width)
+
+        loans_scrollbar = ttk.Scrollbar(loans_tree_frame, orient="vertical", command=self.loans_fine_tree.yview)
+        self.loans_fine_tree.configure(yscrollcommand=loans_scrollbar.set)
+
+        self.loans_fine_tree.pack(side="left", fill="both", expand=True)
+        loans_scrollbar.pack(side="right", fill="y")
+
+        self.loans_fine_tree.bind("<<TreeviewSelect>>", self.on_loan_select_for_fine)
+
+        # === ИНФОРМАЦИЯ О ВЫБРАННОЙ ВЫДАЧЕ ===
+        info_frame = ctk.CTkFrame(form_scrollable)
+        info_frame.pack(fill="x", pady=10)
+
+        self.selected_loan_label = ctk.CTkLabel(info_frame, text="📋 Выдача: не выбрана",
+                                                font=ctk.CTkFont(weight="bold"))
+        self.selected_loan_label.pack(anchor="w", pady=5)
+
+        # Информация о просрочке
+        self.overdue_info_label = ctk.CTkLabel(info_frame, text="📅 Просрочка: -",
+                                               text_color="gray")
+        self.overdue_info_label.pack(anchor="w", pady=2)
+
+        # === ПАРАМЕТРЫ ШТРАФА ===
+        ctk.CTkLabel(form_scrollable, text="Параметры штрафа:",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(20, 0))
+
+        # Сумма штрафа
+        amount_frame = ctk.CTkFrame(form_scrollable)
+        amount_frame.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(amount_frame, text="Сумма штрафа (руб.):*").pack(side="left")
+
+        self.fine_amount_entry = ctk.CTkEntry(amount_frame, width=100)
+        self.fine_amount_entry.insert(0, "100")
+        self.fine_amount_entry.pack(side="right")
+
+        # Дата выдачи штрафа
+        date_frame = ctk.CTkFrame(form_scrollable)
+        date_frame.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(date_frame, text="Дата выдачи штрафа:*").pack(side="left")
+
+        self.fine_date_entry = ctk.CTkEntry(date_frame, width=120)
+        self.fine_date_entry.insert(0, date.today().strftime("%d.%m.%Y"))
+        self.fine_date_entry.pack(side="right")
+
+        # Причина штрафа
+        ctk.CTkLabel(form_scrollable, text="Причина штрафа:").pack(anchor="w", pady=(10, 0))
+        reason_entry = ctk.CTkEntry(form_scrollable, height=35,
+                                    placeholder_text="Укажите причину штрафа...")
+        reason_entry.pack(fill="x", pady=5)
+
+        # Переменные для хранения выбранных данных
+        self.selected_loan_id = None
+        self.selected_loan_due_date = None
+
+        def create_fine():
+            """Функция создания штрафа"""
+            if not self.selected_loan_id:
+                messagebox.showwarning("Ошибка", "Выберите выдачу")
+                return
+
+            try:
+                amount = float(self.fine_amount_entry.get().strip())
+                if amount <= 0:
+                    messagebox.showwarning("Ошибка", "Сумма штрафа должна быть положительной")
+                    return
+
+                # Парсим дату
+                date_str = self.fine_date_entry.get().strip()
+                try:
+                    issued_date = datetime.strptime(date_str, "%d.%m.%Y").date()
+                except ValueError:
+                    messagebox.showerror("Ошибка", "Неверный формат даты. Используйте ДД.ММ.ГГГГ")
+                    return
+
+                reason = reason_entry.get().strip() or None
+
+                # Проверяем, нет ли уже штрафа для этой выдачи
+                existing_fine = db.get_fine_by_loan(self.session, self.selected_loan_id)
+                if existing_fine:
+                    messagebox.showerror("Ошибка",
+                                         f"Для этой выдачи уже существует штраф (ID: {existing_fine.id})")
+                    return
+
+                # Создаем штраф
+                result = db.create_fine(
+                    self.session,
+                    loan_id=self.selected_loan_id,
+                    librarian_id=self.current_user.id,
+                    amount=amount,
+                    issued_date=issued_date
+                )
+
+                if result:
+                    messagebox.showinfo("Успех",
+                                        f"Штраф успешно создан!\n"
+                                        f"Сумма: {amount} руб.\n"
+                                        f"Читатель: {self.selected_loan_label.cget('text').replace('📋 Выдача: ', '')}")
+
+                    dialog.destroy()
+                    self.load_fines()
+
+                    # Логируем создание штрафа
+                    log_msg = f"Создан штраф ID {result.id} на сумму {amount} руб. для выдачи ID {self.selected_loan_id}"
+                    if reason:
+                        log_msg += f" (Причина: {reason})"
+                    print(log_msg)
+
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось создать штраф")
+
+            except ValueError:
+                messagebox.showerror("Ошибка", "Сумма штрафа должна быть числом")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Ошибка при создании штрафа: {e}")
+
+        # Фрейм для кнопок
+        btn_frame = ctk.CTkFrame(main_container)
+        btn_frame.pack(fill="x", pady=(15, 0))
+
+        ctk.CTkButton(btn_frame, text="Отмена",
+                      command=dialog.destroy,
+                      width=100,
+                      fg_color="gray").pack(side="left", padx=(0, 10))
+
+        self.create_fine_btn = ctk.CTkButton(btn_frame, text="💰 Создать штраф",
+                                             command=create_fine,
+                                             width=120,
+                                             state="disabled")
+        self.create_fine_btn.pack(side="right")
+
+        # Загружаем начальные данные
+        self.load_initial_loans_for_fine()
+
+    def search_loans_for_fine(self, event=None):
+        """Поиск выдач для создания штрафа"""
+        search_term = self.loan_search_entry.get().strip()
+
+        try:
+            # Получаем все выдачи
+            all_loans = db.get_all_loans(self.session)
+
+            # Очищаем treeview
+            for item in self.loans_fine_tree.get_children():
+                self.loans_fine_tree.delete(item)
+
+            found_loans = []
+
+            for loan in all_loans:
+                # Получаем информацию о читателе
+                reader = db.get_reader_by_id(self.session, loan.reader_id)
+                if not reader:
+                    continue
+
+                # Получаем информацию о книге
+                copy = db.get_copy_by_id(self.session, loan.copy_id)
+                if copy:
+                    book = db.get_book_by_id(self.session, copy.book_id)
+                    book_title = book.title if book else "Неизвестно"
+                else:
+                    book_title = "Неизвестно"
+
+                # Определяем статус
+                if loan.returned:
+                    status_text = "Возвращена"
+                else:
+                    if loan.return_date < date.today():
+                        status_text = "Просрочена"
+                    else:
+                        status_text = "Активна"
+
+                # Форматируем даты
+                issue_date = loan.loan_date.strftime("%d.%m.%Y") if loan.loan_date else "-"
+                due_date = loan.return_date.strftime("%d.%m.%Y") if loan.return_date else "-"
+
+                loan_info = {
+                    'loan': loan,
+                    'reader_name': reader.name,
+                    'book_title': book_title,
+                    'issue_date': issue_date,
+                    'due_date': due_date,
+                    'status': status_text
+                }
+
+                # Проверяем поиск
+                if not search_term or (
+                        search_term in str(loan.id) or
+                        search_term.lower() in reader.name.lower() or
+                        search_term.lower() in book_title.lower()
+                ):
+                    found_loans.append(loan_info)
+
+            # Сортируем: сначала просроченные, потом активные
+            found_loans.sort(key=lambda x: (x['status'] != "Просрочена", x['status'] != "Активна"))
+
+            for loan_info in found_loans:
+                self.loans_fine_tree.insert("", "end", values=(
+                    loan_info['loan'].id,
+                    loan_info['reader_name'],
+                    loan_info['book_title'],
+                    loan_info['issue_date'],
+                    loan_info['due_date'],
+                    loan_info['status']
+                ))
+
+        except Exception as e:
+            print(f"Ошибка поиска выдач: {e}")
+
+    def load_initial_loans_for_fine(self):
+        """Загрузка начального списка выдач"""
+        try:
+            # Показываем только активные и просроченные выдачи
+            active_loans = db.get_active_loans(self.session)
+            overdue_loans = db.get_overdue_loans(self.session)
+
+            all_loans = overdue_loans + active_loans
+
+            for item in self.loans_fine_tree.get_children():
+                self.loans_fine_tree.delete(item)
+
+            for loan in all_loans:
+                reader = db.get_reader_by_id(self.session, loan.reader_id)
+                if not reader:
+                    continue
+
+                copy = db.get_copy_by_id(self.session, loan.copy_id)
+                if copy:
+                    book = db.get_book_by_id(self.session, copy.book_id)
+                    book_title = book.title if book else "Неизвестно"
+                else:
+                    book_title = "Неизвестно"
+
+                # Определяем статус
+                if loan.returned:
+                    status_text = "Возвращена"
+                else:
+                    if loan.return_date < date.today():
+                        status_text = "Просрочена"
+                    else:
+                        status_text = "Активна"
+
+                issue_date = loan.loan_date.strftime("%d.%m.%Y") if loan.loan_date else "-"
+                due_date = loan.return_date.strftime("%d.%m.%Y") if loan.return_date else "-"
+
+                self.loans_fine_tree.insert("", "end", values=(
+                    loan.id,
+                    reader.name,
+                    book_title,
+                    issue_date,
+                    due_date,
+                    status_text
+                ))
+
+        except Exception as e:
+            print(f"Ошибка загрузки выдач: {e}")
+
+    def on_loan_select_for_fine(self, event):
+        """Обработка выбора выдачи для штрафа"""
+        selected = self.loans_fine_tree.selection()
+        if not selected:
+            return
+
+        item = self.loans_fine_tree.item(selected[0])
+        self.selected_loan_id = item['values'][0]
+        reader_name = item['values'][1]
+        book_title = item['values'][2]
+        due_date = item['values'][4]
+        status = item['values'][5]
+
+        self.selected_loan_label.configure(
+            text=f"📋 Выдача: {reader_name} - {book_title}"
+        )
+
+        # Рассчитываем просрочку
+        if status == "Просрочена":
+            try:
+                due_date_obj = datetime.strptime(due_date, "%d.%m.%Y").date()
+                overdue_days = (date.today() - due_date_obj).days
+                self.overdue_info_label.configure(
+                    text=f"📅 Просрочка: {overdue_days} дней",
+                    text_color="red"
+                )
+                # Автоматически устанавливаем сумму штрафа
+                auto_fine = overdue_days * 10  # 10 руб. в день
+                self.fine_amount_entry.delete(0, "end")
+                self.fine_amount_entry.insert(0, str(auto_fine))
+            except:
+                self.overdue_info_label.configure(text="📅 Просрочка: -")
+        else:
+            self.overdue_info_label.configure(text="📅 Просрочка: нет")
+
+        self.create_fine_btn.configure(state="normal")
+
+    def mark_fine_paid(self, fine_id=None):
+        """Отметка штрафа как оплаченного"""
+        if fine_id is None:
+            selected = self.fines_tree.selection()
+            if not selected:
+                messagebox.showwarning("Ошибка", "Выберите штраф для отметки оплаты")
+                return
+            fine_id = self.fines_tree.item(selected[0])['values'][0]
+
+        try:
+            fine = db.get_fine_by_id(self.session, fine_id)
+            if not fine:
+                messagebox.showerror("Ошибка", "Штраф не найден")
+                return
+
+            if fine.paid:
+                messagebox.showinfo("Информация", "Этот штраф уже оплачен")
+                return
+
+            # Подтверждение
+            if not messagebox.askyesno("Подтверждение",
+                                       f"Отметить штраф ID {fine_id} как оплаченный?\n"
+                                       f"Сумма: {fine.amount} руб."):
+                return
+
+            # Отмечаем как оплаченный
+            result = db.pay_fine(self.session, fine_id)
+            if result:
+                messagebox.showinfo("Успех", f"Штраф ID {fine_id} отмечен как оплаченный")
+                self.load_fines()
+            else:
+                messagebox.showerror("Ошибка", "Не удалось отметить штраф как оплаченный")
+
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка при отметке оплаты: {e}")
+
+    def auto_create_overdue_fines(self):
+        """Автоматическое создание штрафов за просрочку"""
+        try:
+            result = db.auto_create_overdue_fines(self.session)
+            if result:
+                messagebox.showinfo("Успех",
+                                    f"Создано {len(result)} штрафов за просрочку\n"
+                                    f"Общая сумма: {sum(fine.amount for fine in result)} руб.")
+                self.load_fines()
+            else:
+                messagebox.showinfo("Информация", "Нет новых просрочек для создания штрафов")
+
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка при создании авто-штрафов: {e}")
+
+    def delete_fine(self):
+        """Удаление штрафа"""
+        selected = self.fines_tree.selection()
+        if not selected:
+            messagebox.showwarning("Ошибка", "Выберите штраф для удаления")
+            return
+
+        item = self.fines_tree.item(selected[0])
+        fine_id = item['values'][0]
+        amount = item['values'][3]
+        status = item['values'][5]
+
+        if not messagebox.askyesno("Подтверждение",
+                                   f"Вы уверены, что хотите удалить штраф ID {fine_id}?\n"
+                                   f"Сумма: {amount}\n"
+                                   f"Статус: {status}\n\n"
+                                   f"Это действие нельзя отменить!"):
+            return
+
+        try:
+            if db.delete_fine(self.session, fine_id):
+                messagebox.showinfo("Успех", f"Штраф ID {fine_id} удален")
+                self.load_fines()
+            else:
+                messagebox.showerror("Ошибка", "Не удалось удалить штраф")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка при удалении штрафа: {e}")
 if __name__ == "__main__":
     app = LibraryApp()
     app.mainloop()
