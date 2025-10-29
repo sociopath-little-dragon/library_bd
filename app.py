@@ -368,18 +368,12 @@ class FullLibraryApp(ctk.CTk):
                       fg_color="#F72585",
                       hover_color="#B5179E").pack(side="right")
 
-        # Простой контент для каждой вкладки
-        for tab_name in ["Библиотекари"]:
-            tab = self.tabview.tab(tab_name)
-            ctk.CTkLabel(tab, text=f"Раздел '{tab_name}' - в разработке",
-                         font=ctk.CTkFont(size=16)).pack(pady=50)
-            ctk.CTkLabel(tab, text="Здесь будет функционал для управления этой частью системы",
-                         font=ctk.CTkFont(size=12)).pack(pady=10)
 
         self.setup_readers_tab()
         self.setup_books_tab()
         self.setup_loans_tab()
         self.setup_fines_tab()
+        self.setup_librarians_tab()
 
     def setup_books_tab(self):
         """Настройка вкладки Книги с двумя режимами"""
@@ -708,6 +702,163 @@ class FullLibraryApp(ctk.CTk):
 
         # Загружаем данные
         self.load_fines()
+
+    def setup_librarians_tab(self):
+        """Настройка вкладки Библиотекари (только для администраторов)"""
+        tab = self.tabview.tab("Библиотекари")
+
+        # Очищаем вкладку от старых элементов
+        for widget in tab.winfo_children():
+            widget.destroy()
+
+        # Проверяем права доступа
+        if not self.check_admin_access():
+            self.show_access_denied_message(tab)
+            return
+
+        # Основной контейнер
+        main_frame = ctk.CTkFrame(tab)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Левая панель - управление
+        left_panel = ctk.CTkFrame(main_frame)
+        left_panel.pack(side="left", fill="y", padx=(0, 10), pady=10)
+
+        # Правая панель - список библиотекарей
+        right_panel = ctk.CTkFrame(main_frame)
+        right_panel.pack(side="right", fill="both", expand=True, pady=10)
+
+        # === ЛЕВАЯ ПАНЕЛЬ - УПРАВЛЕНИЕ ===
+        ctk.CTkLabel(left_panel, text="👥 Управление библиотекарями",
+                     font=ctk.CTkFont(size=16, weight="bold")).pack(pady=10)
+
+        # Информация о текущем пользователе
+        user_frame = ctk.CTkFrame(left_panel)
+        user_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(user_frame, text="Текущий пользователь:",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(0, 5))
+
+        ctk.CTkLabel(user_frame, text=f"👤 {self.current_user.name}").pack(anchor="w", pady=2)
+        ctk.CTkLabel(user_frame, text=f"💼 {self.current_user.position}").pack(anchor="w", pady=2)
+        ctk.CTkLabel(user_frame, text=f"📧 {self.current_user.email}").pack(anchor="w", pady=2)
+
+        # Статистика
+        stats_frame = ctk.CTkFrame(left_panel)
+        stats_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(stats_frame, text="📊 Статистика",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(0, 5))
+
+        self.total_librarians_label = ctk.CTkLabel(stats_frame, text="Всего библиотекарей: 0")
+        self.total_librarians_label.pack(anchor="w", pady=2)
+
+        self.admins_count_label = ctk.CTkLabel(stats_frame, text="Администраторов: 0")
+        self.admins_count_label.pack(anchor="w", pady=2)
+
+        # Фильтры
+        filter_frame = ctk.CTkFrame(left_panel)
+        filter_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(filter_frame, text="Фильтр по должности:",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(0, 5))
+
+        self.librarians_filter = ctk.CTkComboBox(filter_frame,
+                                                 values=[
+                                                     "Все библиотекари",
+                                                     "Администраторы",
+                                                     "Старшие библиотекари",
+                                                     "Библиотекари",
+                                                     "Помощники"
+                                                 ],
+                                                 command=self.apply_librarians_filter)
+        self.librarians_filter.set("Все библиотекари")
+        self.librarians_filter.pack(fill="x", pady=5)
+
+        # Поиск
+        search_frame = ctk.CTkFrame(left_panel)
+        search_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(search_frame, text="Поиск:",
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(0, 5))
+
+        self.librarians_search = ctk.CTkEntry(search_frame, placeholder_text="Имя, email, должность...")
+        self.librarians_search.pack(fill="x", pady=5)
+        self.librarians_search.bind("<KeyRelease>", self.search_librarians)
+
+        # Кнопки управления
+        btn_frame = ctk.CTkFrame(left_panel)
+        btn_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkButton(btn_frame, text="➕ Добавить библиотекаря",
+                      command=self.show_add_librarian_dialog,
+                      fg_color="#4CC9F0",
+                      hover_color="#3AA8D4").pack(fill="x", pady=5)
+
+        ctk.CTkButton(btn_frame, text="✏️ Изменить выделенного",
+                      command=self.show_edit_librarian_dialog,
+                      fg_color="#7209B7",
+                      hover_color="#560BAD").pack(fill="x", pady=5)
+
+        ctk.CTkButton(btn_frame, text="🔑 Сменить пароль",
+                      command=self.show_change_password_dialog,
+                      fg_color="#F72585",
+                      hover_color="#D41773").pack(fill="x", pady=5)
+
+        ctk.CTkButton(btn_frame, text="🗑️ Удалить библиотекаря",
+                      command=self.delete_librarian_admin,
+                      fg_color="#E63946",
+                      hover_color="#C1121F").pack(fill="x", pady=5)
+
+        ctk.CTkButton(btn_frame, text="🔄 Обновить список",
+                      command=self.load_librarians).pack(fill="x", pady=5)
+
+        # === ПРАВАЯ ПАНЕЛЬ - СПИСОК БИБЛИОТЕКАРЕЙ ===
+        # Заголовок
+        header_frame = ctk.CTkFrame(right_panel)
+        header_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(header_frame, text="📋 Список библиотекарей",
+                     font=ctk.CTkFont(size=16, weight="bold")).pack(side="left")
+
+        self.librarians_count_label = ctk.CTkLabel(header_frame, text="Всего: 0")
+        self.librarians_count_label.pack(side="right")
+
+        # Таблица библиотекарей
+        table_frame = ctk.CTkFrame(right_panel)
+        table_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Создаем Treeview с полосой прокрутки
+        self.librarians_tree = ttk.Treeview(table_frame,
+                                            columns=("ID", "Name", "Email", "Position", "HireDate"),
+                                            show="headings",
+                                            height=15)
+
+        # Настраиваем колонки
+        columns_config = [
+            ("ID", "ID", 50),
+            ("Name", "ФИО", 180),
+            ("Email", "Email", 200),
+            ("Position", "Должность", 150),
+            ("HireDate", "Дата приема", 120)
+        ]
+
+        for col_id, heading, width in columns_config:
+            self.librarians_tree.heading(col_id, text=heading)
+            self.librarians_tree.column(col_id, width=width)
+
+        # Полоса прокрутки
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.librarians_tree.yview)
+        self.librarians_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.librarians_tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Двойной клик для редактирования
+        self.librarians_tree.bind("<Double-1>", lambda e: self.show_edit_librarian_dialog())
+
+        # Загружаем данные
+        self.load_librarians()
 
     def setup_books_mode(self):
         """Режим обзора книг"""
@@ -3759,6 +3910,553 @@ class FullLibraryApp(ctk.CTk):
                 messagebox.showerror("Ошибка", "Не удалось удалить штраф")
         except Exception as e:
             messagebox.showerror("Ошибка", f"Ошибка при удалении штрафа: {e}")
+
+    def check_admin_access(self):
+        """Проверка прав доступа администратора"""
+        return (self.current_user and
+                self.current_user.position and
+                "администратор" in self.current_user.position.lower())
+
+    def show_access_denied_message(self, tab):
+        """Показать сообщение об отказе в доступе"""
+        access_denied_frame = ctk.CTkFrame(tab)
+        access_denied_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        ctk.CTkLabel(access_denied_frame, text="🚫 Доступ запрещен",
+                     font=ctk.CTkFont(size=24, weight="bold"),
+                     text_color="red").pack(pady=20)
+
+        ctk.CTkLabel(access_denied_frame,
+                     text="Для доступа к управлению библиотекарями требуются права администратора.",
+                     font=ctk.CTkFont(size=14),
+                     wraplength=400).pack(pady=10)
+
+        ctk.CTkLabel(access_denied_frame,
+                     text="Обратитесь к системному администратору для получения доступа.",
+                     font=ctk.CTkFont(size=12),
+                     text_color="gray").pack(pady=5)
+
+        # Информация о текущем пользователе
+        user_info_frame = ctk.CTkFrame(access_denied_frame)
+        user_info_frame.pack(pady=20)
+
+        ctk.CTkLabel(user_info_frame, text="Текущий пользователь:",
+                     font=ctk.CTkFont(weight="bold")).pack(pady=5)
+
+        if self.current_user:
+            ctk.CTkLabel(user_info_frame, text=f"👤 {self.current_user.name}").pack(pady=2)
+            ctk.CTkLabel(user_info_frame, text=f"💼 {self.current_user.position or 'Должность не указана'}").pack(pady=2)
+            ctk.CTkLabel(user_info_frame, text=f"📧 {self.current_user.email}").pack(pady=2)
+
+        # Кнопка возврата
+        ctk.CTkButton(access_denied_frame, text="← Назад к главной",
+                      command=lambda: self.tabview.set("Главная"),
+                      fg_color="gray").pack(pady=10)
+
+    def load_librarians(self):
+        """Загрузка списка библиотекарей"""
+        try:
+            # Получаем всех библиотекарей
+            librarians = db.get_all_librarians(self.session)
+
+            # Собираем расширенную информацию
+            self.all_librarians = []
+            self.total_librarians_count = 0
+            self.admins_count = 0
+
+            for librarian in librarians:
+                # Считаем статистику
+                self.total_librarians_count += 1
+
+                if librarian.position and "администратор" in librarian.position.lower():
+                    self.admins_count += 1
+
+                # Форматируем даты
+                hire_date = librarian.hire_date.strftime("%d.%m.%Y") if librarian.hire_date else "-"
+
+                self.all_librarians.append({
+                    'id': librarian.id,
+                    'name': librarian.name,
+                    'email': librarian.email,
+                    'position': librarian.position or "Не указана",
+                    'hire_date': hire_date,
+                    'librarian_obj': librarian
+                })
+
+            # Обновляем статистику
+            self.update_librarians_stats()
+
+            # Применяем текущий фильтр
+            self.apply_librarians_filter(self.librarians_filter.get())
+
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить список библиотекарей: {e}")
+
+    def update_librarians_stats(self):
+        """Обновление статистики библиотекарей"""
+        self.total_librarians_label.configure(text=f"Всего библиотекарей: {self.total_librarians_count}")
+        self.admins_count_label.configure(text=f"Администраторов: {self.admins_count}")
+
+    def apply_librarians_filter(self, choice):
+        """Применение фильтра к списку библиотекарей"""
+        if not hasattr(self, 'all_librarians'):
+            return
+
+        filtered_librarians = []
+
+        if choice == "Все библиотекари":
+            filtered_librarians = self.all_librarians
+        elif choice == "Администраторы":
+            filtered_librarians = [lib for lib in self.all_librarians
+                                   if lib['position'] and "администратор" in lib['position'].lower()]
+        elif choice == "Старшие библиотекари":
+            filtered_librarians = [lib for lib in self.all_librarians
+                                   if lib['position'] and "старш" in lib['position'].lower()]
+        elif choice == "Библиотекари":
+            filtered_librarians = [lib for lib in self.all_librarians
+                                   if lib['position'] and "библиотекар" in lib['position'].lower()
+                                   and "старш" not in lib['position'].lower()]
+        elif choice == "Помощники":
+            filtered_librarians = [lib for lib in self.all_librarians
+                                   if lib['position'] and "помощник" in lib['position'].lower()]
+
+        self.display_librarians(filtered_librarians)
+
+    def search_librarians(self, event=None):
+        """Поиск библиотекарей"""
+        search_term = self.librarians_search.get().strip().lower()
+        if not search_term:
+            self.apply_librarians_filter(self.librarians_filter.get())
+            return
+
+        filtered_librarians = []
+        for librarian in self.all_librarians:
+            if (search_term in librarian['name'].lower() or
+                    search_term in librarian['email'].lower() or
+                    search_term in librarian['position'].lower()):
+                filtered_librarians.append(librarian)
+
+        self.display_librarians(filtered_librarians)
+
+    def display_librarians(self, librarians):
+        """Отображение библиотекарей в таблице"""
+        # Очищаем таблицу
+        for item in self.librarians_tree.get_children():
+            self.librarians_tree.delete(item)
+
+        # Заполняем данными
+        for librarian in librarians:
+            self.librarians_tree.insert("", "end", values=(
+                librarian['id'],
+                librarian['name'],
+                librarian['email'],
+                librarian['position'],
+                librarian['hire_date']
+            ))
+
+        # Обновляем счетчик
+        self.librarians_count_label.configure(text=f"Всего: {len(librarians)}")
+
+    def show_add_librarian_dialog(self):
+        """Диалог добавления библиотекаря"""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Добавить библиотекаря")
+        dialog.geometry("500x600")
+        dialog.minsize(500, 600)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        self.center_dialog(dialog)
+
+        # Главный контейнер
+        main_container = ctk.CTkFrame(dialog)
+        main_container.pack(fill="both", expand=True, padx=20, pady=15)
+
+        ctk.CTkLabel(main_container, text="👥 Добавление библиотекаря",
+                     font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(0, 15))
+
+        # Прокручиваемая область для формы
+        form_scrollable = ctk.CTkScrollableFrame(main_container)
+        form_scrollable.pack(fill="both", expand=True)
+
+        # Поля формы
+        ctk.CTkLabel(form_scrollable, text="ФИО:*").pack(anchor="w", pady=(10, 0))
+        name_entry = ctk.CTkEntry(form_scrollable, height=35)
+        name_entry.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(form_scrollable, text="Email:*").pack(anchor="w", pady=(10, 0))
+        email_entry = ctk.CTkEntry(form_scrollable, height=35)
+        email_entry.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(form_scrollable, text="Пароль:*").pack(anchor="w", pady=(10, 0))
+        password_entry = ctk.CTkEntry(form_scrollable, height=35, show="•")
+        password_entry.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(form_scrollable, text="Подтверждение пароля:*").pack(anchor="w", pady=(10, 0))
+        confirm_password_entry = ctk.CTkEntry(form_scrollable, height=35, show="•")
+        confirm_password_entry.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(form_scrollable, text="Должность:*").pack(anchor="w", pady=(10, 0))
+        position_combo = ctk.CTkComboBox(form_scrollable,
+                                         values=[
+                                             "Администратор",
+                                             "Старший библиотекарь",
+                                             "Библиотекарь",
+                                             "Помощник библиотекаря"
+                                         ])
+        position_combo.set("Библиотекарь")
+        position_combo.pack(fill="x", pady=5)
+
+        # Дополнительная информация
+        ctk.CTkLabel(form_scrollable, text="Примечания:").pack(anchor="w", pady=(10, 0))
+        notes_entry = ctk.CTkTextbox(form_scrollable, height=60)
+        notes_entry.pack(fill="x", pady=5)
+
+        def save_librarian():
+            """Функция сохранения библиотекаря"""
+            try:
+                name = name_entry.get().strip()
+                email = email_entry.get().strip()
+                password = password_entry.get().strip()
+                confirm_password = confirm_password_entry.get().strip()
+                position = position_combo.get()
+                notes = notes_entry.get("1.0", "end-1c").strip() or None
+
+                # Валидация
+                if not name or not email or not password:
+                    messagebox.showwarning("Ошибка", "Заполните все обязательные поля")
+                    return
+
+                if password != confirm_password:
+                    messagebox.showwarning("Ошибка", "Пароли не совпадают")
+                    return
+
+                if len(password) < 6:
+                    messagebox.showwarning("Ошибка", "Пароль должен содержать минимум 6 символов")
+                    return
+
+                # Создаем библиотекаря
+                result = db.create_librarian(
+                    self.session,
+                    name=name,
+                    email=email,
+                    password=password,
+                    position=position
+                )
+
+                if result:
+                    messagebox.showinfo("Успех",
+                                        f"Библиотекарь {name} успешно добавлен!\n\n"
+                                        f"Логин: {email}\n"
+                                        f"Должность: {position}")
+
+                    dialog.destroy()
+                    self.load_librarians()
+
+                    # Логируем создание
+                    print(f"Администратор {self.current_user.name} создал библиотекаря: {name} ({email})")
+
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось добавить библиотекаря")
+
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Ошибка при добавлении библиотекаря: {e}")
+
+        # Фрейм для кнопок
+        btn_frame = ctk.CTkFrame(main_container)
+        btn_frame.pack(fill="x", pady=(15, 0))
+
+        ctk.CTkButton(btn_frame, text="Отмена",
+                      command=dialog.destroy,
+                      width=100,
+                      fg_color="gray").pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(btn_frame, text="💾 Сохранить",
+                      command=save_librarian,
+                      width=100).pack(side="right")
+
+        # Фокусируем на первом поле
+        name_entry.focus_set()
+
+    def show_edit_librarian_dialog(self):
+        """Диалог редактирования библиотекаря"""
+        selected = self.librarians_tree.selection()
+        if not selected:
+            messagebox.showwarning("Ошибка", "Выберите библиотекаря для редактирования")
+            return
+
+        item = self.librarians_tree.item(selected[0])
+        librarian_id = item['values'][0]
+
+        try:
+            librarian = db.get_librarian_by_id(self.session, librarian_id)
+            if not librarian:
+                messagebox.showerror("Ошибка", "Библиотекарь не найден")
+                return
+
+            # Запрещаем редактирование самого себя (чтобы не сломать свой доступ)
+            if librarian.id == self.current_user.id:
+                messagebox.showwarning("Предупреждение",
+                                       "Для редактирования собственного профиля используйте настройки профиля")
+                return
+
+            dialog = ctk.CTkToplevel(self)
+            dialog.title("Редактировать библиотекаря")
+            dialog.geometry("500x500")
+            dialog.minsize(500, 500)
+            dialog.transient(self)
+            dialog.grab_set()
+
+            self.center_dialog(dialog)
+
+            # Главный контейнер
+            main_container = ctk.CTkFrame(dialog)
+            main_container.pack(fill="both", expand=True, padx=20, pady=15)
+
+            ctk.CTkLabel(main_container, text="✏️ Редактирование библиотекаря",
+                         font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(0, 15))
+
+            # Поля формы
+            ctk.CTkLabel(main_container, text="ФИО:*").pack(anchor="w", pady=(10, 0))
+            name_entry = ctk.CTkEntry(main_container, height=35)
+            name_entry.insert(0, librarian.name)
+            name_entry.pack(fill="x", pady=5)
+
+            ctk.CTkLabel(main_container, text="Email:*").pack(anchor="w", pady=(10, 0))
+            email_entry = ctk.CTkEntry(main_container, height=35)
+            email_entry.insert(0, librarian.email)
+            email_entry.pack(fill="x", pady=5)
+
+            ctk.CTkLabel(main_container, text="Должность:*").pack(anchor="w", pady=(10, 0))
+            position_combo = ctk.CTkComboBox(main_container,
+                                             values=[
+                                                 "Администратор",
+                                                 "Старший библиотекарь",
+                                                 "Библиотекарь",
+                                                 "Помощник библиотекаря"
+                                             ])
+            position_combo.set(librarian.position or "Библиотекарь")
+            position_combo.pack(fill="x", pady=5)
+
+            # Информация
+            info_frame = ctk.CTkFrame(main_container)
+            info_frame.pack(fill="x", pady=10)
+
+            hire_date = librarian.hire_date.strftime("%d.%m.%Y") if librarian.hire_date else "Не указана"
+
+            ctk.CTkLabel(info_frame, text="📊 Информация:",
+                         font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(0, 5))
+            ctk.CTkLabel(info_frame, text=f"Дата приема: {hire_date}").pack(anchor="w", pady=2)
+
+            def save_changes():
+                """Функция сохранения изменений"""
+                try:
+                    name = name_entry.get().strip()
+                    email = email_entry.get().strip()
+                    position = position_combo.get()
+
+                    if not name or not email:
+                        messagebox.showwarning("Ошибка", "Заполните все обязательные поля")
+                        return
+
+                    # Обновляем данные
+                    result = db.update_librarian(
+                        self.session,
+                        librarian_id,
+                        name=name,
+                        email=email,
+                        position=position
+                    )
+
+                    if result:
+                        messagebox.showinfo("Успех", "Данные библиотекаря обновлены!")
+                        dialog.destroy()
+                        self.load_librarians()
+
+                        # Логируем изменение
+                        print(f"Администратор {self.current_user.name} обновил данные библиотекаря ID {librarian_id}")
+
+                    else:
+                        messagebox.showerror("Ошибка", "Не удалось обновить данные")
+
+                except Exception as e:
+                    messagebox.showerror("Ошибка", f"Ошибка при обновлении данных: {e}")
+
+            # Фрейм для кнопок
+            btn_frame = ctk.CTkFrame(main_container)
+            btn_frame.pack(fill="x", pady=(15, 0))
+
+            ctk.CTkButton(btn_frame, text="Отмена",
+                          command=dialog.destroy,
+                          width=100,
+                          fg_color="gray").pack(side="left", padx=(0, 10))
+
+            ctk.CTkButton(btn_frame, text="💾 Сохранить",
+                          command=save_changes,
+                          width=100).pack(side="right")
+
+            # Фокусируем на первом поле
+            name_entry.focus_set()
+
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка при загрузке данных: {e}")
+
+    def show_change_password_dialog(self):
+        """Диалог смены пароля библиотекаря"""
+        selected = self.librarians_tree.selection()
+        if not selected:
+            messagebox.showwarning("Ошибка", "Выберите библиотекаря для смены пароля")
+            return
+
+        item = self.librarians_tree.item(selected[0])
+        librarian_id = item['values'][0]
+        librarian_name = item['values'][1]
+
+        try:
+            librarian = db.get_librarian_by_id(self.session, librarian_id)
+            if not librarian:
+                messagebox.showerror("Ошибка", "Библиотекарь не найден")
+                return
+
+            dialog = ctk.CTkToplevel(self)
+            dialog.title("Смена пароля")
+            dialog.geometry("450x500")
+            dialog.minsize(450, 500)
+            dialog.transient(self)
+            dialog.grab_set()
+
+            self.center_dialog(dialog)
+
+            # Главный контейнер
+            main_container = ctk.CTkFrame(dialog)
+            main_container.pack(fill="both", expand=True, padx=20, pady=15)
+
+            ctk.CTkLabel(main_container, text="🔑 Смена пароля",
+                         font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(0, 15))
+
+            # Информация о библиотекаре
+            info_frame = ctk.CTkFrame(main_container)
+            info_frame.pack(fill="x", pady=10)
+
+            ctk.CTkLabel(info_frame, text=f"Библиотекарь: {librarian_name}",
+                         font=ctk.CTkFont(weight="bold")).pack(pady=5)
+            ctk.CTkLabel(info_frame, text=f"Email: {librarian.email}").pack(pady=2)
+
+            # Поля пароля
+            ctk.CTkLabel(main_container, text="Новый пароль:*").pack(anchor="w", pady=(10, 0))
+            new_password_entry = ctk.CTkEntry(main_container, height=35, show="•")
+            new_password_entry.pack(fill="x", pady=5)
+
+            ctk.CTkLabel(main_container, text="Подтверждение пароля:*").pack(anchor="w", pady=(10, 0))
+            confirm_password_entry = ctk.CTkEntry(main_container, height=35, show="•")
+            confirm_password_entry.pack(fill="x", pady=5)
+
+            def change_password():
+                """Функция смены пароля"""
+                try:
+                    new_password = new_password_entry.get().strip()
+                    confirm_password = confirm_password_entry.get().strip()
+
+                    if not new_password or not confirm_password:
+                        messagebox.showwarning("Ошибка", "Заполните все поля")
+                        return
+
+                    if new_password != confirm_password:
+                        messagebox.showwarning("Ошибка", "Пароли не совпадают")
+                        return
+
+                    if len(new_password) < 6:
+                        messagebox.showwarning("Ошибка", "Пароль должен содержать минимум 6 символов")
+                        return
+
+                    # Обновляем пароль
+                    result = db.update_librarian(
+                        self.session,
+                        librarian_id,
+                        password=new_password
+                    )
+
+                    if result:
+                        messagebox.showinfo("Успех", "Пароль успешно изменен!")
+                        dialog.destroy()
+
+                        # Логируем смену пароля
+                        print(f"Администратор {self.current_user.name} сменил пароль библиотекаря {librarian_name}")
+
+                    else:
+                        messagebox.showerror("Ошибка", "Не удалось изменить пароль")
+
+                except Exception as e:
+                    messagebox.showerror("Ошибка", f"Ошибка при смене пароля: {e}")
+
+            # Фрейм для кнопок
+            btn_frame = ctk.CTkFrame(main_container)
+            btn_frame.pack(fill="x", pady=(15, 0))
+
+            ctk.CTkButton(btn_frame, text="Отмена",
+                          command=dialog.destroy,
+                          width=100,
+                          fg_color="gray").pack(side="left", padx=(0, 10))
+
+            ctk.CTkButton(btn_frame, text="🔑 Сменить пароль",
+                          command=change_password,
+                          width=120).pack(side="right")
+
+            # Фокусируем на поле пароля
+            new_password_entry.focus_set()
+
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка при открытии диалога: {e}")
+
+    def delete_librarian_admin(self):
+        """Удаление библиотекаря (администратором)"""
+        selected = self.librarians_tree.selection()
+        if not selected:
+            messagebox.showwarning("Ошибка", "Выберите библиотекаря для удаления")
+            return
+
+        item = self.librarians_tree.item(selected[0])
+        librarian_id = item['values'][0]
+        librarian_name = item['values'][1]
+        librarian_position = item['values'][3]
+
+        # Запрещаем удаление самого себя
+        if librarian_id == self.current_user.id:
+            messagebox.showerror("Ошибка", "Нельзя удалить собственный аккаунт!")
+            return
+
+        # Запрещаем удаление других администраторов (для безопасности)
+        if "администратор" in librarian_position.lower():
+            if not messagebox.askyesno("Подтверждение",
+                                       f"⚠️ ВНИМАНИЕ: Вы пытаетесь удалить администратора!\n\n"
+                                       f"Библиотекарь: {librarian_name}\n"
+                                       f"Должность: {librarian_position}\n\n"
+                                       f"Вы уверены, что хотите продолжить?",
+                                       icon='warning'):
+                return
+
+        # Обычное подтверждение для не-администраторов
+        else:
+            if not messagebox.askyesno("Подтверждение",
+                                       f"Вы уверены, что хотите удалить библиотекаря?\n\n"
+                                       f"ФИО: {librarian_name}\n"
+                                       f"Должность: {librarian_position}\n\n"
+                                       f"Это действие нельзя отменить!"):
+                return
+
+        try:
+            if db.delete_librarian(self.session, librarian_id):
+                messagebox.showinfo("Успех", f"Библиотекарь {librarian_name} удален")
+                self.load_librarians()
+
+                # Логируем удаление
+                print(f"Администратор {self.current_user.name} удалил библиотекаря: {librarian_name}")
+
+            else:
+                messagebox.showerror("Ошибка", "Не удалось удалить библиотекаря")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка при удалении библиотекаря: {e}")
+
 if __name__ == "__main__":
     app = LibraryApp()
     app.mainloop()

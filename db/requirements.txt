@@ -1,0 +1,3 @@
+sqlalchemy==2.0.44
+psycopg2-binary==
+bcrypt==5.0.0
